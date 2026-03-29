@@ -136,6 +136,14 @@ const router = createBrowserRouter([
           </ProtectedRoute>
         ),
       },
+      {
+        path: "/dashboard/owner/*",
+        element: (
+          <ProtectedRoute requiredRole="owner">
+            <Navigate to="/dashboard/owner" replace />
+          </ProtectedRoute>
+        ),
+      },
 
       // Advertiser Dashboard Routes
       {
@@ -183,6 +191,14 @@ const router = createBrowserRouter([
         element: (
           <ProtectedRoute requiredRole="advertiser">
             <BrowseBillboards />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "/dashboard/advertiser/*",
+        element: (
+          <ProtectedRoute requiredRole="advertiser">
+            <Navigate to="/dashboard/advertiser" replace />
           </ProtectedRoute>
         ),
       },
@@ -235,6 +251,18 @@ const router = createBrowserRouter([
             <AdminReports />
           </ProtectedRoute>
         ),
+      },
+      {
+        path: "/dashboard/admin/*",
+        element: (
+          <ProtectedRoute requiredRole="admin">
+            <Navigate to="/dashboard/admin" replace />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "*",
+        element: <Navigate to="/" replace />,
       },
     ],
   },
