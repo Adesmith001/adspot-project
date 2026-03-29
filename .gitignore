@@ -31,6 +31,8 @@ dist-ssr
 # Firebase
 .firebase
 firebase-debug.log
-firestore-debug.log
+firestore-debug.logs
+firestore.indexes.json
+firestore.rules
 
 .agent/

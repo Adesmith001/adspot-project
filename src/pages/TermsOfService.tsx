@@ -33,7 +33,7 @@ const sections = [
             'All payments are processed securely through Korapay, our trusted payment partner. Adspot does not store your payment card details.',
             'Billboard rental fees are quoted in Nigerian Naira (₦) and are subject to applicable taxes and platform service charges.',
             'Advertisers agree to pay the full rental fee at the time of booking confirmation. Partial payments are not accepted unless explicitly stated in a promotional offer.',
-            'Billboard owners choose their Adspot access plan during onboarding: NGN 10,000 monthly, NGN 110,000 yearly, or 15% of weekly earnings, subject to any valid admin-issued coupon discount.',
+            'Billboard owners can create an account directly and start managing listings, bookings, and platform activity after signup.',
             'Adspot receives advertiser payments first and schedules owner payouts every Monday, minus the applicable Adspot owner billing plan.',
             'Refunds are subject to our cancellation policy: full refund if cancelled more than 7 days before the campaign start date, 50% refund if cancelled 3–7 days before, and no refund within 3 days of the start date.',
             'Adspot reserves the right to withhold payments to billboard owners if there are disputes regarding the quality or availability of the listed billboard space.',
