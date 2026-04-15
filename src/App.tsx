@@ -31,6 +31,7 @@ import Payments from "./pages/advertiser/Payments";
 
 // Pages - Shared
 import BillboardDetails from "./pages/shared/BillboardDetails";
+import Messages from "./pages/shared/Messages";
 
 // Pages - Admin
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -137,6 +138,14 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: "/dashboard/owner/messages",
+        element: (
+          <ProtectedRoute requiredRole="owner">
+            <Messages userRole="owner" />
+          </ProtectedRoute>
+        ),
+      },
+      {
         path: "/dashboard/owner/*",
         element: (
           <ProtectedRoute requiredRole="owner">
@@ -183,6 +192,14 @@ const router = createBrowserRouter([
         element: (
           <ProtectedRoute requiredRole="advertiser">
             <Payments />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "/dashboard/advertiser/messages",
+        element: (
+          <ProtectedRoute requiredRole="advertiser">
+            <Messages userRole="advertiser" />
           </ProtectedRoute>
         ),
       },
@@ -249,6 +266,14 @@ const router = createBrowserRouter([
         element: (
           <ProtectedRoute requiredRole="admin">
             <AdminReports />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "/dashboard/admin/messages",
+        element: (
+          <ProtectedRoute requiredRole="admin">
+            <Messages userRole="admin" />
           </ProtectedRoute>
         ),
       },

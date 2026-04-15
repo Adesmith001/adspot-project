@@ -1,10 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { MdFlag, MdSearch } from 'react-icons/md';
+import { MdDoneAll, MdFlag, MdRateReview, MdReply, MdSearch } from 'react-icons/md';
 import DashboardLayout from '@/components/DashboardLayout';
 import Card from '@/components/ui/Card';
 import Pagination from '@/components/ui/Pagination';
-import { getAllReports, type Report, type ReportCategory } from '@/services/admin.service';
+import {
+    getAllReports,
+    replyToReportReporter,
+    updateReportStatus,
+    type Report,
+    type ReportCategory,
+} from '@/services/admin.service';
+import { useAppSelector } from '@/hooks/useRedux';
+import { selectUser } from '@/store/authSlice';
 import toast from 'react-hot-toast';
 
 const PAGE_SIZE = 10;
@@ -37,11 +45,16 @@ const formatDate = (date: Date) =>
     });
 
 const AdminReports: React.FC = () => {
+    const user = useAppSelector(selectUser);
     const [reports, setReports] = useState<Report[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'reviewed' | 'resolved'>('all');
     const [currentPage, setCurrentPage] = useState(1);
+    const [statusActionReportId, setStatusActionReportId] = useState<string | null>(null);
+    const [activeReplyReportId, setActiveReplyReportId] = useState<string | null>(null);
+    const [replyingReportId, setReplyingReportId] = useState<string | null>(null);
+    const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
 
     useEffect(() => {
         const fetchReports = async () => {
@@ -70,6 +83,7 @@ const AdminReports: React.FC = () => {
                 report.description.toLowerCase().includes(query) ||
                 report.reporterName.toLowerCase().includes(query) ||
                 (report.billboardTitle || '').toLowerCase().includes(query) ||
+                (report.lastAdminReply || '').toLowerCase().includes(query) ||
                 (report.bookingId || '').toLowerCase().includes(query);
 
             return matchesStatus && matchesSearch;
@@ -87,6 +101,109 @@ const AdminReports: React.FC = () => {
     const reviewedReports = reports.filter((report) => report.status === 'reviewed').length;
     const ownerReports = reports.filter((report) => report.reporterRole === 'owner').length;
     const advertiserReports = reports.filter((report) => report.reporterRole === 'advertiser').length;
+
+    const handleUpdateStatus = async (
+        report: Report,
+        nextStatus: 'reviewed' | 'resolved',
+    ) => {
+        if (!user) {
+            toast.error('Please sign in again to continue.');
+            return;
+        }
+
+        setStatusActionReportId(report.id);
+        try {
+            await updateReportStatus(
+                report.id,
+                user.uid,
+                user.displayName || 'AdSpot Admin',
+                nextStatus,
+            );
+
+            setReports((prev) =>
+                prev.map((item) => {
+                    if (item.id !== report.id) return item;
+
+                    if (nextStatus === 'reviewed') {
+                        return {
+                            ...item,
+                            status: 'reviewed',
+                            reviewedAt: new Date(),
+                            reviewedBy: user.uid,
+                        };
+                    }
+
+                    return {
+                        ...item,
+                        status: 'resolved',
+                        reviewedAt: item.reviewedAt || new Date(),
+                        reviewedBy: item.reviewedBy || user.uid,
+                        resolvedAt: new Date(),
+                        resolvedBy: user.uid,
+                    };
+                }),
+            );
+
+            toast.success(
+                nextStatus === 'reviewed'
+                    ? 'Report marked as reviewed and reporter notified.'
+                    : 'Report marked as resolved and reporter notified.',
+            );
+        } catch (error) {
+            console.error('Failed to update report status:', error);
+            toast.error('Failed to update report status. Please try again.');
+        } finally {
+            setStatusActionReportId(null);
+        }
+    };
+
+    const handleSendReply = async (report: Report) => {
+        if (!user) {
+            toast.error('Please sign in again to continue.');
+            return;
+        }
+
+        const replyMessage = (replyDrafts[report.id] || '').trim();
+        if (!replyMessage) {
+            toast.error('Please write a message before sending.');
+            return;
+        }
+
+        setReplyingReportId(report.id);
+        try {
+            await replyToReportReporter(
+                report.id,
+                user.uid,
+                user.displayName || 'AdSpot Admin',
+                replyMessage,
+            );
+
+            setReports((prev) =>
+                prev.map((item) =>
+                    item.id === report.id
+                        ? {
+                              ...item,
+                              status: item.status === 'open' ? 'reviewed' : item.status,
+                              reviewedAt: item.status === 'open' ? new Date() : item.reviewedAt,
+                              reviewedBy: item.status === 'open' ? user.uid : item.reviewedBy,
+                              lastAdminReply: replyMessage,
+                              lastAdminReplyAt: new Date(),
+                              lastAdminReplyBy: user.uid,
+                          }
+                        : item,
+                ),
+            );
+
+            setReplyDrafts((prev) => ({ ...prev, [report.id]: '' }));
+            setActiveReplyReportId(null);
+            toast.success('Reply sent to reporter. They have been notified.');
+        } catch (error) {
+            console.error('Failed to send report reply:', error);
+            toast.error('Failed to send reply. Please try again.');
+        } finally {
+            setReplyingReportId(null);
+        }
+    };
 
     if (loading) {
         return (
@@ -223,6 +340,93 @@ const AdminReports: React.FC = () => {
                                                 <p className="mt-1 font-medium text-neutral-900">{formatDate(report.createdAt)}</p>
                                                 <p className="text-neutral-500">Report ID: {report.id}</p>
                                             </div>
+                                        </div>
+
+                                        <div className="mt-4 rounded-xl border border-neutral-200 bg-white p-4">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setActiveReplyReportId((current) =>
+                                                            current === report.id ? null : report.id,
+                                                        )
+                                                    }
+                                                    disabled={replyingReportId === report.id || statusActionReportId === report.id}
+                                                    className="inline-flex items-center gap-2 rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                                >
+                                                    <MdReply size={16} />
+                                                    Reply {report.reporterRole === 'owner' ? 'Owner' : report.reporterRole === 'advertiser' ? 'Advertiser' : 'User'}
+                                                </button>
+
+                                                {report.status === 'open' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleUpdateStatus(report, 'reviewed')}
+                                                        disabled={replyingReportId === report.id || statusActionReportId === report.id}
+                                                        className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    >
+                                                        <MdRateReview size={16} />
+                                                        Mark Reviewed
+                                                    </button>
+                                                )}
+
+                                                {report.status !== 'resolved' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleUpdateStatus(report, 'resolved')}
+                                                        disabled={replyingReportId === report.id || statusActionReportId === report.id}
+                                                        className="inline-flex items-center gap-2 rounded-lg border border-[#b7d13c] bg-[#d4f34a]/30 px-3 py-2 text-xs font-semibold text-green-900 hover:bg-[#d4f34a]/45 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    >
+                                                        <MdDoneAll size={16} />
+                                                        Mark Resolved
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {report.lastAdminReply && activeReplyReportId !== report.id && (
+                                                <p className="mt-3 text-xs text-neutral-500">
+                                                    Last admin reply: {report.lastAdminReply}
+                                                </p>
+                                            )}
+
+                                            {activeReplyReportId === report.id && (
+                                                <div className="mt-3 rounded-lg bg-neutral-50 p-3">
+                                                    <label htmlFor={`reply-${report.id}`} className="text-xs font-semibold text-neutral-600">
+                                                        Reply message
+                                                    </label>
+                                                    <textarea
+                                                        id={`reply-${report.id}`}
+                                                        value={replyDrafts[report.id] || ''}
+                                                        onChange={(event) =>
+                                                            setReplyDrafts((prev) => ({
+                                                                ...prev,
+                                                                [report.id]: event.target.value,
+                                                            }))
+                                                        }
+                                                        rows={3}
+                                                        placeholder="Write your response to this report..."
+                                                        className="mt-2 w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                                    />
+                                                    <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setActiveReplyReportId(null)}
+                                                            disabled={replyingReportId === report.id}
+                                                            className="rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleSendReply(report)}
+                                                            disabled={replyingReportId === report.id || !(replyDrafts[report.id] || '').trim()}
+                                                            className="rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                                        >
+                                                            {replyingReportId === report.id ? 'Sending...' : 'Send Reply'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

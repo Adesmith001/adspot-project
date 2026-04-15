@@ -347,7 +347,10 @@ export type NotificationType =
   | "creative_changes_requested"
   | "creative_approved"
   | "review_prompt"
-  | "campaign_completed";
+  | "campaign_completed"
+  | "report_received"
+  | "report_reviewed"
+  | "report_resolved";
 
 export interface Notification {
   id: string;

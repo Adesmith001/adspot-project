@@ -681,6 +681,13 @@ export interface Report {
   subject: string;
   description: string;
   status: "open" | "reviewed" | "resolved";
+  reviewedAt?: Date;
+  reviewedBy?: string;
+  resolvedAt?: Date;
+  resolvedBy?: string;
+  lastAdminReply?: string;
+  lastAdminReplyAt?: Date;
+  lastAdminReplyBy?: string;
   createdAt: Date;
 }
 
@@ -713,6 +720,31 @@ export const submitReport = async (
       createdAt: serverTimestamp(),
     };
     const docRef = await addDoc(collection(db, REPORTS_COLLECTION), report);
+
+    // Notify all admins that a new report has been submitted.
+    const usersSnapshot = await getDocs(collection(db, USERS_COLLECTION));
+    const adminIds = usersSnapshot.docs
+      .filter((entry) => entry.data().role === "admin" && entry.id !== reporterId)
+      .map((entry) => entry.id);
+
+    if (adminIds.length > 0) {
+      await Promise.all(
+        adminIds.map((adminId) =>
+          createNotification(
+            adminId,
+            "report_received",
+            "New report submitted",
+            `${reporterName} reported: ${data.subject}`,
+            {
+              bookingId: data.bookingId,
+              billboardId: data.billboardId,
+            },
+            "/dashboard/admin/reports",
+          ),
+        ),
+      );
+    }
+
     return docRef.id;
   } catch (error) {
     console.error("Error submitting report:", error);
@@ -735,6 +767,9 @@ export const getAllReports = async (): Promise<Report[]> => {
       ...entry.data(),
       reporterRole: entry.data().reporterRole || "advertiser",
       createdAt: timestampToDate(entry.data().createdAt),
+      reviewedAt: optionalTimestampToDate(entry.data().reviewedAt),
+      resolvedAt: optionalTimestampToDate(entry.data().resolvedAt),
+      lastAdminReplyAt: optionalTimestampToDate(entry.data().lastAdminReplyAt),
     })) as Report[];
   } catch (error) {
     console.error("Error fetching reports:", error);
@@ -751,4 +786,127 @@ export const startAdminConversation = async (
   initialMessage?: string,
 ): Promise<string> => {
   return startConversation(adminId, targetUserId, initialMessage);
+};
+
+/**
+ * Update a report status and notify the reporter.
+ */
+export const updateReportStatus = async (
+  reportId: string,
+  adminId: string,
+  adminName: string,
+  status: "reviewed" | "resolved",
+): Promise<void> => {
+  try {
+    const reportRef = doc(db, REPORTS_COLLECTION, reportId);
+    const reportSnap = await getDoc(reportRef);
+
+    if (!reportSnap.exists()) {
+      throw new Error("Report not found.");
+    }
+
+    const report = reportSnap.data() as Report;
+    const updatePayload: Record<string, unknown> = {
+      status,
+      updatedAt: serverTimestamp(),
+    };
+
+    if (status === "reviewed") {
+      updatePayload.reviewedAt = serverTimestamp();
+      updatePayload.reviewedBy = adminId;
+    }
+
+    if (status === "resolved") {
+      updatePayload.resolvedAt = serverTimestamp();
+      updatePayload.resolvedBy = adminId;
+      if (report.status === "open") {
+        updatePayload.reviewedAt = serverTimestamp();
+        updatePayload.reviewedBy = adminId;
+      }
+    }
+
+    await updateDoc(reportRef, updatePayload);
+
+    if (report.reporterId) {
+      const title = status === "reviewed" ? "Report reviewed" : "Report resolved";
+      const message =
+        status === "reviewed"
+          ? `${adminName} reviewed your report: ${report.subject}`
+          : `${adminName} resolved your report: ${report.subject}`;
+
+      await createNotification(
+        report.reporterId,
+        status === "reviewed" ? "report_reviewed" : "report_resolved",
+        title,
+        message,
+        {
+          bookingId: report.bookingId,
+          billboardId: report.billboardId,
+        },
+        report.reporterRole === "owner"
+          ? "/dashboard/owner/bookings"
+          : report.reporterRole === "admin"
+            ? "/dashboard/admin/reports"
+            : "/dashboard/advertiser/campaigns",
+      );
+    }
+  } catch (error) {
+    console.error("Error updating report status:", error);
+    throw error;
+  }
+};
+
+/**
+ * Reply to a report reporter using the existing conversation system.
+ */
+export const replyToReportReporter = async (
+  reportId: string,
+  adminId: string,
+  adminName: string,
+  message: string,
+): Promise<string> => {
+  try {
+    const cleanedMessage = message.trim();
+    if (!cleanedMessage) {
+      throw new Error("Reply message is required.");
+    }
+
+    const reportRef = doc(db, REPORTS_COLLECTION, reportId);
+    const reportSnap = await getDoc(reportRef);
+
+    if (!reportSnap.exists()) {
+      throw new Error("Report not found.");
+    }
+
+    const report = reportSnap.data() as Report;
+    if (!report.reporterId) {
+      throw new Error("Reporter not found for this report.");
+    }
+
+    const initialMessage = `Hello ${report.reporterName || "there"},\n\n${cleanedMessage}\n\n- ${adminName}`;
+    const conversationId = await startAdminConversation(
+      adminId,
+      report.reporterId,
+      initialMessage,
+    );
+
+    const updatePayload: Record<string, unknown> = {
+      lastAdminReply: cleanedMessage,
+      lastAdminReplyAt: serverTimestamp(),
+      lastAdminReplyBy: adminId,
+      updatedAt: serverTimestamp(),
+    };
+
+    if (report.status === "open") {
+      updatePayload.status = "reviewed";
+      updatePayload.reviewedAt = serverTimestamp();
+      updatePayload.reviewedBy = adminId;
+    }
+
+    await updateDoc(reportRef, updatePayload);
+    return conversationId;
+  } catch (error) {
+    console.error("Error replying to report:", error);
+    throw error;
+  }
 };
